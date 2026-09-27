@@ -30,6 +30,29 @@ Ishga tushirish:
 python -m gmail_bot
 ```
 
+## Docker Compose bilan ishga tushirish
+
+`.env` faylini yuqoridagidek to'ldiring, keyin:
+
+```bash
+docker compose up -d --build     # ishga tushirish
+docker compose logs -f           # loglarni ko'rish
+docker compose down              # to'xtatish
+```
+
+Baza (`gmail_bot.db`) `bot-data` volume'ida saqlanadi, shuning uchun konteyner qayta
+yaratilsa yoki yangilansa ham sozlamalar yo'qolmaydi. Bot server qayta ishga tushganda
+avtomatik ko'tariladi (`restart: unless-stopped`).
+
+Kod o'zgargandan keyin yangilash:
+
+```bash
+git pull && docker compose up -d --build
+```
+
+> ⚠️ `docker compose down -v` volume'ni ham o'chiradi — barcha sozlamalar yo'qoladi.
+> `ENCRYPTION_KEY`ni ham o'zgartirmang, aks holda saqlangan parollarni o'qib bo'lmaydi.
+
 ## Gmail tomonini tayyorlash
 
 1. Google hisobida **2 bosqichli tekshiruv**ni yoqing.
