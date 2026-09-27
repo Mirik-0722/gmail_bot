@@ -46,9 +46,18 @@ python -m gmail_bot
 | `/cancel` | Sozlashni bekor qilish |
 
 Qo'llab-quvvatlanadigan xabarlar: matn, hujjat, rasm, video, audio, ovozli xabar, dumaloq video, GIF.
+Albom (bir nechta rasm/fayl birga) yuborilsa — hammasi **bitta xat** bo'lib boradi.
 
 ## Cheklovlar
 
 * Telegram botlari 20 MB dan katta faylni yuklab ololmaydi, 50 MB dan kattasini yubora olmaydi.
 * Gmail'dan faqat **o'zingizdan o'zingizga** (From va To — sizning manzilingiz) yuborilgan xatlar botga keladi.
 * Ulashda eski xatlar yuborilmaydi — faqat ulangandan keyin kelganlari.
+* Gmail'dagi xatni Telegram'ga yetkazib bo'lmasa, bot 3 marta urinadi, keyin ogohlantirib o'tkazib yuboradi (keyingi xatlar to'silib qolmaydi).
+
+## Testlar
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest
+```

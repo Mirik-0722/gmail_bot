@@ -36,6 +36,8 @@ ASK_EMAIL, ASK_PASSWORD = range(2)
 TG_TEXT_LIMIT = 4000
 TG_DOWNLOAD_LIMIT = 20 * 1024 * 1024  # Bot API getFile limiti
 TG_UPLOAD_LIMIT = 50 * 1024 * 1024  # Bot API sendDocument limiti
+ALBUM_WAIT = 2  # albom qismlarini yig'ish uchun kutish (sekund)
+MAX_DELIVERY_ATTEMPTS = 3
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 HELP_TEXT = (
@@ -195,51 +197,91 @@ def _subject_for(text: str, filename: str | None) -> str:
 
 async def forward_to_gmail(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
-    settings = storage(context).get(update.effective_chat.id)
-    if settings is None:
+    chat_id = update.effective_chat.id
+    if storage(context).get(chat_id) is None:
         await message.reply_text("Avval Gmail'ni ulang: /settings")
         return
 
-    text = message.text or message.caption or ""
-    attachments: list[Attachment] = []
-    filename = None
+    if message.media_group_id:
+        # Albom (bir nechta rasm/fayl birga) — qismlarini yig'ib, bitta xat qilib yuboramiz.
+        key = (chat_id, message.media_group_id)
+        albums: dict = context.bot_data["albums"]
+        if key not in albums:
+            albums[key] = []
+            context.job_queue.run_once(_flush_album, ALBUM_WAIT, data=key, chat_id=chat_id)
+        albums[key].append(message)
+        return
 
-    file_info = _file_of(message)
-    if file_info:
+    await _send_messages(context, chat_id, [message])
+
+
+async def _flush_album(context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id, _ = context.job.data
+    messages = context.bot_data["albums"].pop(context.job.data, [])
+    if messages:
+        await _send_messages(context, chat_id, sorted(messages, key=lambda m: m.message_id))
+
+
+async def _send_messages(
+    context: ContextTypes.DEFAULT_TYPE, chat_id: int, messages: list[Message]
+) -> None:
+    """Bir yoki bir nechta Telegram xabarini bitta xat qilib Gmail'ga yuboradi."""
+    first = messages[0]
+    settings = storage(context).get(chat_id)
+    if settings is None:
+        await first.reply_text("Avval Gmail'ni ulang: /settings")
+        return
+
+    text = "\n\n".join(t for t in (m.text or m.caption for m in messages) if t)
+    attachments: list[Attachment] = []
+    too_big: list[str] = []
+
+    for message in messages:
+        file_info = _file_of(message)
+        if not file_info:
+            continue
         tg_file, filename = file_info
-        size = getattr(tg_file, "file_size", None) or 0
-        if size > TG_DOWNLOAD_LIMIT:
-            await message.reply_text(
-                "Fayl juda katta: Telegram botlari 20 MB dan katta faylni yuklab ololmaydi."
-            )
-            return
-        await context.bot.send_chat_action(message.chat_id, ChatAction.UPLOAD_DOCUMENT)
+        if (getattr(tg_file, "file_size", None) or 0) > TG_DOWNLOAD_LIMIT:
+            too_big.append(filename)
+            continue
+        await context.bot.send_chat_action(chat_id, ChatAction.UPLOAD_DOCUMENT)
         f = await tg_file.get_file()
         data = await f.download_as_bytearray()
         attachments.append(Attachment(filename=filename, content=bytes(data)))
 
+    if too_big:
+        await first.reply_text(
+            "⚠️ Telegram botlari 20 MB dan katta faylni yuklab ololmaydi, "
+            "shular yuborilmaydi: " + ", ".join(too_big)
+        )
     if not text and not attachments:
-        await message.reply_text("Bu turdagi xabarni yuborib bo'lmaydi. Matn yoki fayl yuboring.")
+        if not too_big:
+            await first.reply_text("Bu turdagi xabarni yuborib bo'lmaydi. Matn yoki fayl yuboring.")
         return
+
+    if not text and len(attachments) > 1:
+        subject = f"Telegram: {len(attachments)} ta fayl"
+    else:
+        subject = _subject_for(text, attachments[0].filename if attachments else None)
 
     try:
         await asyncio.to_thread(
             mail_client.send_to_self,
             settings.email,
             settings.app_password,
-            _subject_for(text, filename),
+            subject,
             text,
             attachments,
         )
     except MailAuthError:
-        await message.reply_text("Gmail'ga kirib bo'lmadi. App Password'ni yangilang: /settings")
+        await first.reply_text("Gmail'ga kirib bo'lmadi. App Password'ni yangilang: /settings")
         return
     except Exception as e:
         log.exception("Xat yuborishda xato")
-        await message.reply_text(f"Xat yuborilmadi: {e}")
+        await first.reply_text(f"Xat yuborilmadi: {e}")
         return
 
-    await message.reply_text("📨 Gmail'ga yuborildi", reply_to_message_id=message.message_id)
+    await first.reply_text("📨 Gmail'ga yuborildi", reply_to_message_id=first.message_id)
 
 
 # --------------------------------------------------------------------------- #
@@ -284,14 +326,29 @@ async def _poll_user(context: ContextTypes.DEFAULT_TYPE, settings) -> None:
         return
 
     auth_failed.discard(settings.chat_id)
+    failures: dict = context.bot_data["delivery_failures"]
     for mail in mails:
+        key = (settings.chat_id, mail.uid)
         try:
             await _deliver(context, settings.chat_id, mail)
+            failures.pop(key, None)
         except Exception:
             log.exception("Xatni Telegram'ga yetkazishda xato (uid %s)", mail.uid)
-            # Yetkazilgan joygacha saqlaymiz, qolganini keyingi safar qayta uriniladi.
-            st.update_last_uid(settings.chat_id, mail.uid - 1)
-            return
+            failures[key] = failures.get(key, 0) + 1
+            if failures[key] < MAX_DELIVERY_ATTEMPTS:
+                # Yetkazilgan joygacha saqlaymiz, shu xat keyingi safar qayta uriniladi.
+                st.update_last_uid(settings.chat_id, mail.uid - 1)
+                return
+            # Bir necha marta urinib ham bo'lmadi — keyingi xatlarni to'sib qolmasligi
+            # uchun bu xatni o'tkazib yuboramiz.
+            failures.pop(key, None)
+            try:
+                await context.bot.send_message(
+                    settings.chat_id,
+                    f"⚠️ Gmail'dagi bir xatni yetkazib bo'lmadi: {mail.subject or '(mavzusiz)'}",
+                )
+            except Exception:
+                log.exception("Ogohlantirishni yuborib bo'lmadi (chat %s)", settings.chat_id)
     if max_uid > settings.last_uid:
         st.update_last_uid(settings.chat_id, max_uid)
 
@@ -307,6 +364,8 @@ def build_app(config: Config) -> Application:
     app.bot_data["config"] = config
     app.bot_data["storage"] = Storage(config.db_path, config.encryption_key)
     app.bot_data["auth_failed"] = set()
+    app.bot_data["albums"] = {}
+    app.bot_data["delivery_failures"] = {}
 
     app.add_handler(TypeHandler(Update, access_guard), group=-1)
 
