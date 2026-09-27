@@ -5,36 +5,36 @@
 
 Bot yuborgan xatlarga maxsus `X-Telegram-Gmail-Bot` sarlavhasi qo'yiladi, shuning uchun ular qaytib botga kelmaydi.
 
-## O'rnatish
+## Environment variables
+
+Barcha sozlamalar **environment variable** orqali beriladi (`.env` fayl ishlatilmaydi).
+
+| O'zgaruvchi | Majburiy | Tavsif |
+|---|---|---|
+| `TELEGRAM_BOT_TOKEN` | ha | [@BotFather](https://t.me/BotFather) dan olingan token |
+| `ENCRYPTION_KEY` | ha | App Password'larni shifrlash kaliti (pastda qanday yaratish) |
+| `POLL_INTERVAL` | yo'q | Gmail necha sekundda bir tekshirilsin (standart `30`) |
+| `ALLOWED_USERS` | yo'q | Faqat shu Telegram user ID'lar ishlata oladi, vergul bilan: `123,456` |
+| `DB_PATH` | yo'q | SQLite fayl yo'li (standart `gmail_bot.db`, Docker'da `/data/gmail_bot.db`) |
+
+`ENCRYPTION_KEY` yaratish (bir marta yarating va o'zgartirmang):
 
 ```bash
-python -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env
-```
-
-`.env` faylini to'ldiring:
-
-* `TELEGRAM_BOT_TOKEN` — [@BotFather](https://t.me/BotFather) dan olingan token
-* `ENCRYPTION_KEY` — App Password'larni shifrlash kaliti:
-  ```bash
-  python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-  ```
-* `POLL_INTERVAL` — Gmail necha sekundda bir tekshirilsin (standart 30)
-* `ALLOWED_USERS` — (ixtiyoriy) ruxsat berilgan Telegram user ID'lar
-
-Ishga tushirish:
-
-```bash
-python -m gmail_bot
+python -c "import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
 ```
 
 ## Docker Compose bilan ishga tushirish
 
-`.env` faylini yuqoridagidek to'ldiring, keyin:
+Hosting paneli (Coolify, Dokploy, Portainer va h.k.) orqali joylasangiz, yuqoridagi
+o'zgaruvchilarni panelning **Environment Variables** bo'limiga kiriting —
+`docker-compose.yml` ularni o'sha yerdan oladi. Majburiylari berilmasa, compose
+xato beradi.
+
+Serverda qo'lda ishga tushirish:
 
 ```bash
+export TELEGRAM_BOT_TOKEN="123456:ABC..."
+export ENCRYPTION_KEY="...yaratilgan kalit..."
 docker compose up -d --build     # ishga tushirish
 docker compose logs -f           # loglarni ko'rish
 docker compose down              # to'xtatish
@@ -44,7 +44,7 @@ Baza (`gmail_bot.db`) `bot-data` volume'ida saqlanadi, shuning uchun konteyner q
 yaratilsa yoki yangilansa ham sozlamalar yo'qolmaydi. Bot server qayta ishga tushganda
 avtomatik ko'tariladi (`restart: unless-stopped`).
 
-Kod o'zgargandan keyin yangilash:
+Kod o'zgargandan keyin yangilash (o'zgaruvchilar shu shell'da `export` qilingan bo'lishi kerak):
 
 ```bash
 git pull && docker compose up -d --build
@@ -52,6 +52,17 @@ git pull && docker compose up -d --build
 
 > ⚠️ `docker compose down -v` volume'ni ham o'chiradi — barcha sozlamalar yo'qoladi.
 > `ENCRYPTION_KEY`ni ham o'zgartirmang, aks holda saqlangan parollarni o'qib bo'lmaydi.
+
+## Docker'siz ishga tushirish
+
+```bash
+python -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+export TELEGRAM_BOT_TOKEN="123456:ABC..."
+export ENCRYPTION_KEY="...yaratilgan kalit..."
+python -m gmail_bot
+```
 
 ## Gmail tomonini tayyorlash
 

@@ -1,10 +1,6 @@
 import os
 from dataclasses import dataclass
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
 
 @dataclass(frozen=True)
 class Config:
@@ -19,10 +15,10 @@ def load_config() -> Config:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     key = os.getenv("ENCRYPTION_KEY", "").strip()
     if not token:
-        raise SystemExit("TELEGRAM_BOT_TOKEN .env faylida ko'rsatilmagan")
+        raise SystemExit("TELEGRAM_BOT_TOKEN environment variable berilmagan")
     if not key:
         raise SystemExit(
-            "ENCRYPTION_KEY .env faylida ko'rsatilmagan. Yaratish:\n"
+            "ENCRYPTION_KEY environment variable berilmagan. Yaratish:\n"
             '  python -c "from cryptography.fernet import Fernet; '
             'print(Fernet.generate_key().decode())"'
         )

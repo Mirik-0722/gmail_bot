@@ -4,8 +4,12 @@ services:
     image: gmail-bot
     container_name: gmail-bot
     restart: unless-stopped
-    env_file: .env
+    # Qiymatlar hosting/serverdagi environment variable'lardan olinadi.
     environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?TELEGRAM_BOT_TOKEN berilmagan}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY berilmagan}
+      POLL_INTERVAL: ${POLL_INTERVAL:-30}
+      ALLOWED_USERS: ${ALLOWED_USERS:-}
       # Baza volume ichida saqlanadi, konteyner qayta yaratilsa ham yo'qolmaydi
       DB_PATH: /data/gmail_bot.db
     volumes:
